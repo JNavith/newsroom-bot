@@ -3,5 +3,6 @@ members = ["discord-bot", "on-lambda"]
 resolver = "2"
 
 [workspace.dependencies]
+snafu = "0.8"
 tokio = "1"
 tracing = "0.1"

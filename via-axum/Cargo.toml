@@ -6,3 +6,6 @@ edition = "2024"
 [dependencies]
 axum = { version = "0.8", features = ["http2"] }
 discord-bot = { path = "../discord-bot" }
+ed25519-compact = "2.1.1"
+hex = "0.4.3"
+snafu = { workspace = true }
