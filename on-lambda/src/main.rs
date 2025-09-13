@@ -1,5 +1,4 @@
 use clap::Parser;
-use lambda_http::{run, tracing};
 use secrecy::SecretString;
 use snafu::{ResultExt, Snafu};
 
@@ -19,11 +18,11 @@ struct Args {
 async fn main() -> Result<(), lambda_http::Error> {
     let Args { discord_token } = Args::parse();
 
-    tracing::init_default_subscriber();
+    lambda_http::tracing::init_default_subscriber();
 
     let router = via_axum::init(discord_token).await.context(AxumInitSnafu)?;
 
-    run(router).await?;
+    lambda_http::run(router).await?;
 
     Ok(())
 }
