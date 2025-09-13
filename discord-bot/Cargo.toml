@@ -4,4 +4,15 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-blart = "0.4.0"
+rart = "0.2"
+futures = "0.3.31"
+secrecy = { workspace = true }
+snafu = { workspace = true }
+tracing = { workspace = true }
+twilight-http = { version = "0.16.0", default-features = false, features = [
+    "rustls-webpki-roots",
+    "hickory",
+    "decompression",
+] }
+twilight-model = "0.16"
+twilight-util = { version = "0.16.0", features = ["builder"] }
