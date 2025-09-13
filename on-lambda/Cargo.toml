@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+clap = { version = "4", features = ["derive", "env"] }
+secrecy = { workspace = true }
+snafu = { workspace = true }
 lambda_http = "0.17.0"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 via-axum = { path = "../via-axum" }
