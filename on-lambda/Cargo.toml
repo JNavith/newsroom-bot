@@ -5,8 +5,9 @@ edition = "2024"
 
 [dependencies]
 clap = { version = "4", features = ["derive", "env"] }
+lambda_http = "0.17.0"
+parse-hex-public-key = { path = "../parse-hex-public-key" }
 secrecy = { workspace = true }
 snafu = { workspace = true }
-lambda_http = "0.17.0"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 via-axum = { path = "../via-axum" }

@@ -1,0 +1,9 @@
+[package]
+name = "parse-hex-public-key"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ed25519-compact = { workspace = true }
+hex = { workspace = true }
+snafu = { workspace = true }

@@ -1,5 +1,6 @@
 use secrecy::{ExposeSecret, SecretString};
 use snafu::{ResultExt, Snafu};
+pub use twilight_model::application::interaction::Interaction;
 
 mod command;
 

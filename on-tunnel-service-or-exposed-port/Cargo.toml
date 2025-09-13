@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 axum = { workspace = true, features = ["http2", "tokio"] }
 clap = { version = "4", features = ["derive", "env"] }
+parse-hex-public-key = { path = "../parse-hex-public-key" }
 secrecy = { workspace = true }
 snafu = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
