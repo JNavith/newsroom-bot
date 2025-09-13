@@ -10,6 +10,7 @@ secrecy = { workspace = true }
 snafu = { workspace = true }
 tracing = { workspace = true }
 twilight-http = { version = "0.16.0", default-features = false, features = [
+    "rustls-aws_lc_rs",
     "rustls-webpki-roots",
     "hickory",
     "decompression",

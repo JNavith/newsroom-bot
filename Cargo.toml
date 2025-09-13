@@ -1,8 +1,14 @@
 [workspace]
-members = ["discord-bot", "on-lambda"]
+members = [
+    "discord-bot",
+    "on-lambda",
+    "on-tunnel-service-or-exposed-port",
+    "via-axum",
+]
 resolver = "2"
 
 [workspace.dependencies]
+axum = "0.8"
 secrecy = "0.10"
 snafu = "0.8"
 tokio = "1"
