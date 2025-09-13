@@ -28,6 +28,7 @@ enum AppError {
     ServeError { source: std::io::Error },
 }
 
+#[snafu::report]
 #[tokio::main]
 async fn main() -> Result<(), AppError> {
     let Args {
