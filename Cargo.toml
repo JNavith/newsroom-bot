@@ -1,0 +1,7 @@
+[workspace]
+members = ["discord-bot", "on-lambda"]
+resolver = "2"
+
+[workspace.dependencies]
+tokio = "1"
+tracing = "0.1"

@@ -1,0 +1,9 @@
+[package]
+name = "on-lambda"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+lambda_http = "0.17.0"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+via-axum = { path = "../via-axum" }
