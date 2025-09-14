@@ -1,6 +1,6 @@
 use crate::AppState;
 use axum::{
-    RequestExt, Router,
+    Json, RequestExt, Router,
     body::Bytes,
     extract::{FromRef, FromRequest, Request, State},
     http::{HeaderName, HeaderValue, StatusCode},
@@ -210,11 +210,20 @@ where
     }
 }
 
-#[tracing::instrument]
+#[tracing::instrument(skip(app_state))]
 pub async fn handle_post(
-    State(state): State<AppState>,
+    State(app_state): State<AppState>,
     Ed25519VerifiedJson(interaction): Ed25519VerifiedJson<Interaction>,
 ) -> impl IntoResponse {
-    todo!();
-    ()
+    let discord_token = app_state.discord_token;
+    let discord_state = discord_bot::State { discord_token };
+
+    match app_state
+        .discord_interaction_handler
+        .handle(discord_state, interaction)
+        .await
+    {
+        Ok(response) => Json(response),
+        Err(error) => todo!(),
+    }
 }
