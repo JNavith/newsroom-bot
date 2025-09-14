@@ -43,7 +43,7 @@ async fn main() -> Result<(), AppError> {
             Hex(PublicKeyOrphanRuleAvoidance(discord_application_public_key)),
     } = Args::parse();
 
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt().pretty().init();
 
     let addr = SocketAddr::new(ip, port);
     let listener = TcpListener::bind(addr).await.context(BindSnafu)?;
