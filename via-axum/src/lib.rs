@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use axum::Router;
 use discord_bot::InteractionHandler;
 use ed25519_compact::PublicKey;
@@ -10,7 +12,7 @@ mod routes;
 struct AppState {
     discord_application_public_key: PublicKey,
     discord_interaction_handler: InteractionHandler,
-    discord_token: SecretString,
+    discord_client: Arc<discord_bot::Client>,
 }
 
 #[derive(Debug, Snafu)]
@@ -24,16 +26,18 @@ pub async fn init(
     discord_token: SecretString,
     discord_application_public_key: PublicKey,
 ) -> Result<Router<()>, InitError> {
-    let discord_interaction_handler = discord_bot::init(discord_token.clone())
+    let (discord_client, discord_interaction_handler) = discord_bot::init(discord_token.clone())
         .await
         .context(DiscordBotInitSnafu)?;
 
     let router = routes::create_router();
 
+    let discord_client = Arc::new(discord_client);
+
     let app_state = AppState {
         discord_application_public_key,
+        discord_client,
         discord_interaction_handler,
-        discord_token,
     };
     let router = router.with_state(app_state);
 

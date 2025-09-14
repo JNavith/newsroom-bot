@@ -14,7 +14,7 @@ struct Args {
     #[arg(env)]
     discord_token: SecretString,
 
-    #[arg(long, env)]
+    #[arg(env)]
     discord_application_public_key: Hex<PublicKeyOrphanRuleAvoidance>,
 }
 

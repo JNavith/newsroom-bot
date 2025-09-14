@@ -1,5 +1,7 @@
 use secrecy::{ExposeSecret, SecretString};
 use snafu::{ResultExt, Snafu};
+use std::sync::Arc;
+pub use twilight_http::Client;
 pub use twilight_model::{
     application::interaction::Interaction, http::interaction::InteractionResponse,
 };
@@ -12,7 +14,7 @@ mod command;
 
 #[derive(Debug, Clone)]
 pub struct State {
-    pub discord_token: SecretString,
+    pub discord_client: Arc<Client>,
 }
 
 #[derive(Debug, Snafu)]
@@ -33,8 +35,8 @@ pub enum InitError {
 }
 
 #[tracing::instrument]
-pub async fn init(discord_token: SecretString) -> Result<InteractionHandler, InitError> {
-    let discord_client = twilight_http::Client::new(discord_token.expose_secret().into());
+pub async fn init(discord_token: SecretString) -> Result<(Client, InteractionHandler), InitError> {
+    let discord_client = Client::new(discord_token.expose_secret().into());
 
     let current_application = discord_client
         .current_user_application()
@@ -68,7 +70,7 @@ pub async fn init(discord_token: SecretString) -> Result<InteractionHandler, Ini
 
     let interaction_handler = InteractionHandler { command_router };
 
-    Ok(interaction_handler)
+    Ok((discord_client, interaction_handler))
 }
 
 #[derive(Clone)]
