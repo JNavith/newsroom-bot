@@ -15,9 +15,13 @@ struct Args {
 
     #[arg(long, env)]
     discord_token: SecretString,
-
     #[arg(long, env)]
     discord_application_public_key: Hex<PublicKeyOrphanRuleAvoidance>,
+
+    #[arg(long, env)]
+    spotify_client_id: String,
+    #[arg(long, env)]
+    spotify_client_secret: SecretString,
 }
 
 #[derive(Debug, Snafu)]
@@ -41,6 +45,8 @@ async fn main() -> Result<(), AppError> {
         discord_token,
         discord_application_public_key:
             Hex(PublicKeyOrphanRuleAvoidance(discord_application_public_key)),
+        spotify_client_id,
+        spotify_client_secret,
     } = Args::parse();
 
     tracing_subscriber::fmt().pretty().init();
@@ -48,9 +54,14 @@ async fn main() -> Result<(), AppError> {
     let addr = SocketAddr::new(ip, port);
     let listener = TcpListener::bind(addr).await.context(BindSnafu)?;
 
-    let router = via_axum::init(discord_token, discord_application_public_key)
-        .await
-        .context(AxumInitSnafu)?;
+    let router = via_axum::init(via_axum::InitArgs {
+        discord_token,
+        discord_application_public_key,
+        spotify_client_id,
+        spotify_client_secret,
+    })
+    .await
+    .context(AxumInitSnafu)?;
 
     tracing::info!(?addr, "listening on");
     axum::serve(listener, router).await.context(ServeSnafu)?;

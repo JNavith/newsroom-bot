@@ -5,19 +5,22 @@ use futures::future::BoxFuture;
 use rart::{ArrayKey, VersionedAdaptiveRadixTree};
 use snafu::{OptionExt, Snafu};
 use twilight_model::{
-    application::{command::Command, interaction::application_command::CommandData},
+    application::{
+        command::Command,
+        interaction::{Interaction, InteractionData},
+    },
     http::interaction::InteractionResponse,
 };
 
 mod new_release;
 
 type Return = InteractionResponse;
-type ArcedHandler = Arc<dyn Fn(State, CommandData) -> BoxFuture<'static, Return> + Send + Sync>;
+type ArcedHandler = Arc<dyn Fn(State, Interaction) -> BoxFuture<'static, Return> + Send + Sync>;
 
 fn arc_handler<Handler, Fut>(handler: Handler) -> ArcedHandler
 where
     Fut: Future<Output = Return> + Send + 'static,
-    Handler: Send + Sync + Fn(State, CommandData) -> Fut + 'static,
+    Handler: Send + Sync + Fn(State, Interaction) -> Fut + 'static,
 {
     Arc::new(move |state, command_data| Box::pin(handler(state, command_data)))
 }
@@ -33,6 +36,11 @@ pub struct CommandRouter {
 
 #[derive(Debug, Clone, Snafu)]
 pub enum HandlingError {
+    #[snafu(display("missing expected interaction data"))]
+    MisssingInteractionData,
+    #[snafu(display("missing expected command data"))]
+    MissingExpectedCommandData,
+
     #[snafu(display("asked to handle a non-existant command {name:?}"))]
     CommandDoesntExist { name: String },
 }
@@ -41,7 +49,7 @@ impl CommandRouter {
     fn add<Fut, Handler>(&mut self, name: String, handler: Handler)
     where
         Fut: Future<Output = Return> + Send + 'static,
-        Handler: Send + Sync + Fn(State, CommandData) -> Fut + 'static,
+        Handler: Send + Sync + Fn(State, Interaction) -> Fut + 'static,
     {
         self.add_already_arced(name, arc_handler(handler));
     }
@@ -53,8 +61,16 @@ impl CommandRouter {
     pub async fn handle(
         &self,
         state: State,
-        command_data: CommandData,
+        interaction: Interaction,
     ) -> Result<Return, HandlingError> {
+        let InteractionData::ApplicationCommand(command_data) = interaction
+            .data
+            .as_ref()
+            .context(MisssingInteractionDataSnafu)?
+        else {
+            return Err(HandlingError::MissingExpectedCommandData);
+        };
+
         let command_name = &command_data.name;
 
         let handler = self
@@ -64,7 +80,7 @@ impl CommandRouter {
                 name: command_name.to_owned(),
             })?;
 
-        Ok(handler(state, command_data).await)
+        Ok(handler(state, interaction).await)
     }
 }
 

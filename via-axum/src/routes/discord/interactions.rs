@@ -215,12 +215,9 @@ pub async fn handle_post(
     State(app_state): State<AppState>,
     Ed25519VerifiedJson(interaction): Ed25519VerifiedJson<Interaction>,
 ) -> impl IntoResponse {
-    let discord_client = app_state.discord_client;
-    let discord_state = discord_bot::State { discord_client };
-
     match app_state
         .discord_interaction_handler
-        .handle(discord_state, interaction)
+        .handle(app_state.discord_bot_state, interaction)
         .await
     {
         Ok(response) => Json(response),

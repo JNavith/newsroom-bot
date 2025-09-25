@@ -10,8 +10,8 @@ resolver = "2"
 
 [workspace.dependencies]
 axum = "0.8"
-ed25519-compact = "2.1.1"
-hex = "0.4.3"
+ed25519-compact = "2.1"
+hex = "0.4"
 secrecy = "0.10"
 snafu = "0.8"
 tokio = "1"

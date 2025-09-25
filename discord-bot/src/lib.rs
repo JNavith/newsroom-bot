@@ -1,20 +1,29 @@
+use rspotify::{ClientCredsSpotify, Credentials};
 use secrecy::{ExposeSecret, SecretString};
-use snafu::{ResultExt, Snafu};
-use std::sync::Arc;
+use snafu::{Report, ResultExt, Snafu};
+use std::{sync::Arc, time::Duration};
+use tokio::{sync::oneshot, time::timeout};
 pub use twilight_http::Client;
 pub use twilight_model::{
     application::interaction::Interaction, http::interaction::InteractionResponse,
 };
 use twilight_model::{
-    application::interaction::{InteractionData, InteractionType},
+    application::interaction::InteractionType,
+    channel::message::MessageFlags,
     http::interaction::InteractionResponseType,
+    id::{Id, marker::ApplicationMarker},
 };
+use twilight_util::builder::InteractionResponseDataBuilder;
 
+mod case_insensitive;
 mod command;
 
 #[derive(Debug, Clone)]
 pub struct State {
     pub discord_client: Arc<Client>,
+    pub discord_application_id: Id<ApplicationMarker>,
+
+    pub spotify_client: Arc<ClientCredsSpotify>,
 }
 
 #[derive(Debug, Snafu)]
@@ -34,8 +43,22 @@ pub enum InitError {
     },
 }
 
+#[derive(Debug)]
+pub struct InitArgs {
+    pub discord_token: SecretString,
+
+    pub spotify_client_id: String,
+    pub spotify_client_secret: SecretString,
+}
+
 #[tracing::instrument]
-pub async fn init(discord_token: SecretString) -> Result<(Client, InteractionHandler), InitError> {
+pub async fn init(
+    InitArgs {
+        discord_token,
+        spotify_client_id,
+        spotify_client_secret,
+    }: InitArgs,
+) -> Result<(InteractionHandler, State), InitError> {
     let discord_client = Client::new(discord_token.expose_secret().into());
 
     let current_application = discord_client
@@ -46,9 +69,9 @@ pub async fn init(discord_token: SecretString) -> Result<(Client, InteractionHan
         .await
         .context(DeserializeCurrentApplicationSnafu)?;
 
-    let application_id = current_application.id;
+    let discord_application_id = current_application.id;
 
-    let interaction_client = discord_client.interaction(application_id);
+    let discord_interaction_client = discord_client.interaction(discord_application_id);
 
     let all_commands = command::all();
 
@@ -58,7 +81,7 @@ pub async fn init(discord_token: SecretString) -> Result<(Client, InteractionHan
             .map(|(command, _handler)| (*command).to_owned()),
     );
 
-    let _returned_commands = interaction_client
+    let _returned_commands = discord_interaction_client
         .set_global_commands(&discord_commands)
         .await
         .context(SetInteractionCommandsSnafu)?
@@ -70,7 +93,20 @@ pub async fn init(discord_token: SecretString) -> Result<(Client, InteractionHan
 
     let interaction_handler = InteractionHandler { command_router };
 
-    Ok((discord_client, interaction_handler))
+    let spotify_credentials =
+        Credentials::new(&spotify_client_id, spotify_client_secret.expose_secret());
+    let spotify_client = ClientCredsSpotify::new(spotify_credentials);
+
+    let discord_client = Arc::new(discord_client);
+    let spotify_client = Arc::new(spotify_client);
+
+    let state = State {
+        discord_client,
+        discord_application_id,
+        spotify_client,
+    };
+
+    Ok((interaction_handler, state))
 }
 
 #[derive(Clone)]
@@ -82,11 +118,10 @@ pub struct InteractionHandler {
 pub enum InteractionHandleError {
     #[snafu(display("error handling command"))]
     CommandHandleError { source: command::HandlingError },
-    #[snafu(display("missing expected command data"))]
-    MissingExpectedCommandData,
 }
 
 impl InteractionHandler {
+    #[tracing::instrument(skip(self))]
     pub async fn handle(
         &self,
         state: State,
@@ -98,20 +133,58 @@ impl InteractionHandler {
                 data: None,
             }),
             InteractionType::ApplicationCommand => {
-                let Some(InteractionData::ApplicationCommand(command_data)) = interaction.data
-                else {
-                    return Err(InteractionHandleError::MissingExpectedCommandData);
-                };
+                let interaction_token = interaction.token.clone();
 
-                let command_data = *command_data;
+                let (tx, rx) = oneshot::channel();
 
-                let interaction_response = self
-                    .command_router
-                    .handle(state, command_data)
-                    .await
-                    .context(CommandHandleSnafu)?;
+                let command_router = self.command_router.clone();
+                let discord_client = state.discord_client.clone();
+                let discord_application_id = state.discord_application_id;
 
-                Ok(interaction_response)
+                let response_task = tokio::spawn(async move {
+                    let ret = command_router.handle(state, interaction).await;
+                    tx.send(ret).unwrap();
+                });
+
+                match timeout(Duration::from_millis(500), response_task).await {
+                    Ok(in_time) => {
+                        in_time.unwrap();
+                        rx.await.unwrap().context(CommandHandleSnafu)
+                    }
+                    Err(_) => {
+                        tokio::spawn(async move {
+                            let response_res = rx.await.unwrap();
+
+                            match response_res {
+                                Ok(response) => discord_client
+                                    .interaction(discord_application_id)
+                                    .update_response(&interaction_token)
+                                    .content(
+                                        response.data.as_ref().expect("TODO").content.as_deref(),
+                                    )
+                                    .embeds(response.data.as_ref().expect("TODO").embeds.as_deref())
+                                    .await
+                                    .unwrap(),
+                                Err(handling_error) => discord_client
+                                    .interaction(discord_application_id)
+                                    .update_response(&interaction_token)
+                                    .content(Some(&Report::from_error(handling_error).to_string()))
+                                    .await
+                                    .unwrap(),
+                            }
+                        });
+
+                        let deferred = InteractionResponse {
+                            kind: InteractionResponseType::DeferredChannelMessageWithSource,
+                            data: Some(
+                                InteractionResponseDataBuilder::new()
+                                    .flags(MessageFlags::EPHEMERAL)
+                                    .build(),
+                            ),
+                        };
+                        Ok(deferred)
+                    }
+                }
             }
             InteractionType::MessageComponent => todo!(),
             InteractionType::ApplicationCommandAutocomplete => todo!(),

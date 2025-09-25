@@ -4,10 +4,24 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-rart = "0.2"
+ahash = "0.8.12"
+chrono = "0.4.42"
+deranged = "0.5.3"
+ecow = "0.2.6"
 futures = "0.3.31"
+iref = "3.2.2"
+itertools = "0.14.0"
+nonempty = "0.12.0"
+rart = "0.2"
+rspotify = { version = "0.15.1", default-features = false, features = [
+    "async-stream",
+    "client-reqwest",
+    "reqwest-rustls-tls",
+] }
 secrecy = { workspace = true }
 snafu = { workspace = true }
+time = "0.3.44"
+tokio = { workspace = true, features = ["sync", "time"] }
 tracing = { workspace = true }
 twilight-http = { version = "0.16.0", default-features = false, features = [
     "rustls-aws_lc_rs",
@@ -17,4 +31,7 @@ twilight-http = { version = "0.16.0", default-features = false, features = [
 ] }
 twilight-model = "0.16"
 twilight-util = { version = "0.16.0", features = ["builder"] }
-itertools = "0.14.0"
+url = "2.5.7"
+
+[dev-dependencies]
+proptest = "1.7.0"
