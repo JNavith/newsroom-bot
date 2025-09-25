@@ -1,3 +1,4 @@
+use crate::command::State;
 use ahash::AHashSet;
 use deranged::RangedU8;
 use futures::TryStreamExt;
@@ -31,8 +32,7 @@ use twilight_util::builder::{
     command::{CommandBuilder, StringBuilder},
     embed::{EmbedBuilder, EmbedFooterBuilder},
 };
-
-use crate::{case_insensitive::CaseInsensitiveString, command::State};
+use uncased::{Uncased, UncasedStr};
 
 const NAME: &str = "new-release";
 const DESCRIPTION: &str = "Post a new music release in this channel";
@@ -206,8 +206,8 @@ impl From<HandleError> for InteractionResponse {
     }
 }
 
-fn format_or_role(name: &str, roles: &BTreeMap<CaseInsensitiveString, Role>) -> String {
-    match roles.get(&CaseInsensitiveString(name.into())) {
+fn format_or_role(name: &str, roles: &BTreeMap<Uncased, Role>) -> String {
+    match roles.get(UncasedStr::new(name)) {
         Some(role) => format!("<@&{}>", role.id),
         None => format!("**{name}**"),
     }
@@ -235,7 +235,7 @@ async fn handle_impl(
     let roles_map = BTreeMap::from_iter(
         roles
             .into_iter()
-            .map(|role| (CaseInsensitiveString((&role.name).into()), role)),
+            .map(|role| (Uncased::from(role.name.as_str()).into_owned(), role)),
     );
 
     let InteractionData::ApplicationCommand(command_data) = interaction.data.unwrap() else {
@@ -400,7 +400,7 @@ async fn handle_impl(
         );
     }
     if let Some(label) = label {
-        if roles_map.contains_key(&CaseInsensitiveString((&label).into())) {
+        if roles_map.contains_key(UncasedStr::new(&label)) {
             first_line = format!("{first_line} (on {})", format_or_role(&label, &roles_map))
         }
     }

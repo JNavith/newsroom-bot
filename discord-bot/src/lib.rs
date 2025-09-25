@@ -15,7 +15,6 @@ use twilight_model::{
 };
 use twilight_util::builder::InteractionResponseDataBuilder;
 
-mod case_insensitive;
 mod command;
 
 #[derive(Debug, Clone)]
