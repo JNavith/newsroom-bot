@@ -8,12 +8,17 @@ use iref::{
 };
 use itertools::Itertools;
 use nonempty::NonEmpty as NonEmptyVec;
+use readformat::readf;
 use rspotify::{
     model::{AlbumId, AlbumType, Id, IdError, PlaylistId, TrackId},
     prelude::BaseClient,
 };
 use snafu::{OptionExt, Report, ResultExt, Snafu};
-use std::{collections::BTreeMap, num::ParseIntError, sync::LazyLock};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    num::ParseIntError,
+    sync::LazyLock,
+};
 use time::{Date, OffsetDateTime, Time};
 use twilight_model::{
     application::{
@@ -206,6 +211,21 @@ impl From<HandleError> for InteractionResponse {
     }
 }
 
+fn parse_list_of_artists(artists_joined: String) -> NonEmptyVec<String> {
+    let features = NonEmptyVec::collect(artists_joined.rsplit(", ").map(ToOwned::to_owned))
+        .expect("rsplit returns at least one thing");
+
+    let last = features.head;
+    let last_ampersand = last.split(" & ").map(ToOwned::to_owned);
+
+    let mut rest = features.tail;
+    rest.reverse();
+
+    NonEmptyVec::collect(rest.into_iter().chain(last_ampersand)).expect(
+        "rsplit returned at least one thing earlier, so there is still at least one thing now",
+    )
+}
+
 fn format_or_role(name: &str, roles: &BTreeMap<Uncased, Role>) -> String {
     match roles.get(UncasedStr::new(name)) {
         Some(role) => format!("<@&{}>", role.id),
@@ -331,17 +351,72 @@ async fn handle_impl(
         AlbumType::Album => Some("LP".to_owned()),
         AlbumType::Compilation => Some("Compilation".to_owned()),
         AlbumType::AppearsOn => Some("Appears On (I don't know what this means lol)".to_owned()),
-        AlbumType::Single => None,
+        AlbumType::Single => (n_tracks >= 3).then_some("EP".to_owned()),
     };
 
     let mut title = album_data.name;
     if let Some(new_title) = title.strip_suffix(" - EP") {
         title = new_title.into();
         release_type = Some("EP".into());
+    } else if let Some(new_title) = title.strip_suffix(" (EP)") {
+        title = new_title.into();
+        release_type = Some("EP".into());
     } else if let Some(new_title) = title.strip_suffix(" EP") {
         title = new_title.into();
         release_type = Some("EP".into());
+    } else if let Some(new_title) = title.strip_suffix(" - Remixes") {
+        title = new_title.into();
+        release_type = Some("Remixes".into());
+    } else if let Some(new_title) = title.strip_suffix(" (Remixes)") {
+        title = new_title.into();
+        release_type = Some("Remixes".into());
+    } else if let Some(new_title) = title.strip_suffix(" Remixes") {
+        title = new_title.into();
+        release_type = Some("Remixes".into());
+    } else if let Some(new_title) = title.strip_suffix(" - The Remixes") {
+        title = new_title.into();
+        release_type = Some("Remixes".into());
+    } else if let Some(new_title) = title.strip_suffix(" (The Remixes)") {
+        title = new_title.into();
+        release_type = Some("Remixes".into());
+    } else if let Some(new_title) = title.strip_suffix(" The Remixes") {
+        title = new_title.into();
+        release_type = Some("Remixes".into());
     }
+
+    let (title, features) = match readf("{} (feat. {})", &title) {
+        Some(args) => {
+            let [title, features] = args.try_into().expect(
+                "there should be two things returned because I wrote two {}s in the format string",
+            );
+
+            (title, Some(parse_list_of_artists(features)))
+        }
+        None => (title, None),
+    };
+    let features_set = features
+        .as_ref()
+        .map(BTreeSet::from_iter)
+        .unwrap_or_default();
+    let (title, remixers) = match readf("{} ({} Remix)", &title) {
+        Some(args) => {
+            let [title, remixers] = args.try_into().expect(
+                "there should be two things returned because I wrote two {}s in the format string",
+            );
+
+            (title, Some(parse_list_of_artists(remixers)))
+        }
+        None => (title, None),
+    };
+    let remixers_set = remixers
+        .as_ref()
+        .map(BTreeSet::from_iter)
+        .unwrap_or_default();
+
+    main_artist_names
+        .retain(|artist| !(features_set.contains(artist) || remixers_set.contains(artist)));
+    additional_artist_names
+        .retain(|artist| !(features_set.contains(artist) || remixers_set.contains(artist)));
 
     let release_date = album_data.release_date;
 
@@ -380,32 +455,62 @@ async fn handle_impl(
 
     let label = album_data.label;
 
-    let mut release_name = format!("{title}");
+    let url = album_id.url();
+    let mut first_line = format!("[{title}](<{url}>)");
+
+    if let Some(remixers) = remixers {
+        let remixers_joined = remixers
+            .into_iter()
+            .map(|name| format_or_role(&name, &roles_map))
+            .join(" & ");
+
+        first_line = format!("{first_line} ({remixers_joined} Remix)");
+    }
+
     if let Some(release_type) = release_type {
         let release_type_and_tracks = format!("{release_type}, {n_tracks} tracks");
 
-        release_name = format!("{release_name} ({release_type_and_tracks})");
+        first_line = format!("{first_line} ({release_type_and_tracks})");
     }
 
-    let url = album_id.url();
-    let mut first_line = format!("[{release_name}](<{url}>)");
+    let featured_artists_joined = features.map(|features| {
+        features
+            .into_iter()
+            .map(|name| format_or_role(&name, &roles_map))
+            .join(" & ")
+    });
 
-    if main_artist_names != vec!["Various Artists".to_string()] {
-        first_line = format!(
-            "{} - {first_line}",
-            main_artist_names
-                .into_iter()
-                .map(|name| format_or_role(&name, &roles_map))
-                .join(" & ")
-        );
+    if !main_artist_names.is_empty() && main_artist_names != vec!["Various Artists".to_string()] {
+        let main_artists_joined = main_artist_names
+            .into_iter()
+            .map(|name| format_or_role(&name, &roles_map))
+            .join(" & ");
+        let mut main_artists_section = main_artists_joined;
+
+        if let Some(featured_artists_joined) = featured_artists_joined {
+            main_artists_section =
+                format!("{main_artists_section} (feat. {featured_artists_joined})");
+        }
+
+        first_line = format!("{main_artists_section} - {first_line}");
+    } else if let Some(featured_artists_joined) = featured_artists_joined {
+        first_line = format!("{featured_artists_joined} - {first_line}");
     }
+
+    let mut in_brackets = release_date.map(|release_date| format!("{release_date}"));
     if let Some(label) = label {
         if roles_map.contains_key(UncasedStr::new(&label)) {
-            first_line = format!("{first_line} (on {})", format_or_role(&label, &roles_map))
+            let formatted_label = format_or_role(&label, &roles_map);
+            let this_part = format!("on {formatted_label}");
+
+            in_brackets = Some(in_brackets.map_or_else(
+                || this_part.clone(),
+                |in_brackets| format!("{in_brackets} on {formatted_label}"),
+            ));
         }
     }
-    if let Some(release_date) = release_date {
-        first_line = format!("{first_line} [{release_date}]");
+    if let Some(in_brackets) = in_brackets {
+        first_line = format!("{first_line} [{in_brackets}]");
     }
 
     let additional_artist_names = NonEmptyVec::from_vec(additional_artist_names);

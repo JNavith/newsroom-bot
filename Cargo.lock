@@ -638,6 +638,7 @@ dependencies = [
  "nonempty",
  "proptest",
  "rart",
+ "readformat",
  "rspotify",
  "secrecy",
  "snafu",
@@ -2051,6 +2052,12 @@ dependencies = [
  "num-traits",
  "simdeez",
 ]
+
+[[package]]
+name = "readformat"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e1fd097dab477324dfeb476d75627e38fd1a7437bc0e94751084be499d7e6b1"
 
 [[package]]
 name = "redox_syscall"
