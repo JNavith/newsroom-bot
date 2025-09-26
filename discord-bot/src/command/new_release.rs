@@ -10,7 +10,9 @@ use itertools::Itertools;
 use nonempty::NonEmpty as NonEmptyVec;
 use readformat::readf;
 use rspotify::{
-    model::{AlbumId, AlbumType, Id, IdError, PlaylistId, TrackId},
+    model::{
+        AlbumId, AlbumType, FullAlbum, Id, IdError, Market, PlaylistId, SimplifiedTrack, TrackId,
+    },
     prelude::BaseClient,
 };
 use snafu::{OptionExt, Report, ResultExt, Snafu};
@@ -31,6 +33,7 @@ use twilight_model::{
     channel::message::MessageFlags,
     guild::Role,
     http::interaction::{InteractionResponse, InteractionResponseType},
+    id::marker::GuildMarker,
 };
 use twilight_util::builder::{
     InteractionResponseDataBuilder,
@@ -234,6 +237,50 @@ fn format_or_role(name: &str, roles: &BTreeMap<Uncased, Role>) -> String {
 }
 
 #[tracing::instrument(ret)]
+async fn get_roles(
+    discord_client: &twilight_http::Client,
+    guild_id: twilight_model::id::Id<GuildMarker>,
+) -> Result<BTreeMap<Uncased<'static>, Role>, HandleError> {
+    let roles = discord_client
+        .roles(guild_id)
+        .await
+        .context(GetRolesSnafu)?
+        .models()
+        .await
+        .context(DeserializeRolesSnafu)?;
+
+    Ok(roles
+        .into_iter()
+        .map(|role| (Uncased::from(role.name.as_str()).into_owned(), role))
+        .collect())
+}
+
+#[tracing::instrument(ret)]
+async fn get_album_data(
+    spotify_client: &rspotify::ClientCredsSpotify,
+    album_id: AlbumId<'_>,
+    market: Option<Market>,
+) -> Result<FullAlbum, HandleError> {
+    spotify_client
+        .album(album_id, market)
+        .await
+        .context(FetchSpotifyAlbumSnafu)
+}
+
+#[tracing::instrument(ret)]
+async fn get_all_tracks_data(
+    spotify_client: &rspotify::ClientCredsSpotify,
+    album_id: AlbumId<'_>,
+    market: Option<Market>,
+) -> Result<Vec<SimplifiedTrack>, HandleError> {
+    spotify_client
+        .album_track(album_id.clone(), market)
+        .try_collect()
+        .await
+        .context(FetchSpotifyAlbumTracksSnafu)
+}
+
+#[tracing::instrument(ret)]
 async fn handle_impl(
     State {
         discord_client,
@@ -243,20 +290,6 @@ async fn handle_impl(
     interaction: Interaction,
 ) -> Result<InteractionResponse, HandleError> {
     let guild_id = interaction.guild_id.context(NotUsedInGuildSnafu)?;
-
-    let roles = discord_client
-        .roles(guild_id)
-        .await
-        .context(GetRolesSnafu)?
-        .models()
-        .await
-        .context(DeserializeRolesSnafu)?;
-
-    let roles_map = BTreeMap::from_iter(
-        roles
-            .into_iter()
-            .map(|role| (Uncased::from(role.name.as_str()).into_owned(), role)),
-    );
 
     let InteractionData::ApplicationCommand(command_data) = interaction.data.unwrap() else {
         panic!(
@@ -283,14 +316,6 @@ async fn handle_impl(
 
     let base = Iri::new("https://open.spotify.com").context(SpotifyBaseNotValidUrlSnafu)?;
 
-    let spotify_resource = parse_spotify_resource(url.as_iri_ref(), base.as_iri_ref())
-        .context(UrlForUnsupportedServiceSnafu)?;
-
-    let album_id = match spotify_resource {
-        SpotifyResource::Album { id } => id,
-        other => return Err(HandleError::UrlForUnsupportedSpotifyResource { got: other }),
-    };
-
     let needs_refresh = spotify_client
         .token
         .lock()
@@ -310,12 +335,21 @@ async fn handle_impl(
             .context(SpotifyTokenSnafu)?;
     }
 
+    let spotify_resource = parse_spotify_resource(url.as_iri_ref(), base.as_iri_ref())
+        .context(UrlForUnsupportedServiceSnafu)?;
+
+    let album_id = match spotify_resource {
+        SpotifyResource::Album { id } => id,
+        other => return Err(HandleError::UrlForUnsupportedSpotifyResource { got: other }),
+    };
+
     let market = None;
 
-    let album_data = spotify_client
-        .album(album_id.clone(), market)
-        .await
-        .context(FetchSpotifyAlbumSnafu)?;
+    let (roles_map, album_data, all_tracks) = tokio::try_join!(
+        get_roles(&discord_client, guild_id),
+        get_album_data(&spotify_client, album_id.clone(), market),
+        get_all_tracks_data(&spotify_client, album_id.clone(), market)
+    )?;
 
     let mut unique_artist_ids = AHashSet::new();
 
@@ -327,12 +361,6 @@ async fn handle_impl(
             }
         }
     }
-
-    let all_tracks: Vec<_> = spotify_client
-        .album_track(album_id.clone(), market)
-        .try_collect()
-        .await
-        .context(FetchSpotifyAlbumTracksSnafu)?;
 
     let n_tracks = all_tracks.len();
 
