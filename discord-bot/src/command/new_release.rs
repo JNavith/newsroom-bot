@@ -239,15 +239,7 @@ struct Release {
 }
 
 #[derive(Debug, Snafu)]
-enum GetSemanticDataError {
-    /// couldn't fetch {url}
-    FetchError {
-        source: reqwest::Error,
-        url: IriRefBuf,
-    },
-    /// couldn't get the content of the webpage
-    ResponseTextError { source: reqwest::Error },
-
+enum GetReleaseFromLdJsonError {
     /// there is no semantic (JSON-LD) release data in the web page (this is likely to mean the service is unsupported)
     NoSemanticDataInPage,
 
@@ -278,16 +270,7 @@ enum GetSemanticDataError {
     NoTracks,
 }
 
-#[tracing::instrument(ret)]
-async fn get_semantic_data(url: &IriRef) -> Result<Release, GetSemanticDataError> {
-    let response = reqwest::get(url.as_str())
-        .await
-        .with_context(|_| FetchSnafu {
-            url: url.to_owned(),
-        })?;
-    let document = response.text().await.context(ResponseTextSnafu)?;
-    let document = scraper::Html::parse_document(&document);
-
+fn get_release_from_ld_json(document: scraper::Html) -> Result<Release, GetReleaseFromLdJsonError> {
     let ld_json_selector = scraper::Selector::parse("script[type='application/ld+json']")
         .expect("ld+json selector should be valid");
     let ld_json_elements = document.select(&ld_json_selector);
@@ -444,6 +427,33 @@ async fn get_semantic_data(url: &IriRef) -> Result<Release, GetSemanticDataError
         tracks,
         record_label,
     })
+}
+
+#[derive(Debug, Snafu)]
+enum GetSemanticDataError {
+    /// couldn't fetch {url}
+    FetchError {
+        source: reqwest::Error,
+        url: IriRefBuf,
+    },
+    /// couldn't get the content of the webpage
+    ResponseTextError { source: reqwest::Error },
+
+    /// could not surface a release from JSON-LD in the page (this is likely to mean the service is unsupported)
+    ReleaseFromLdJsonError { source: GetReleaseFromLdJsonError },
+}
+
+#[tracing::instrument(ret)]
+async fn get_semantic_data(url: &IriRef) -> Result<Release, GetSemanticDataError> {
+    let response = reqwest::get(url.as_str())
+        .await
+        .with_context(|_| FetchSnafu {
+            url: url.to_owned(),
+        })?;
+    let document = response.text().await.context(ResponseTextSnafu)?;
+    let document = scraper::Html::parse_document(&document);
+
+    get_release_from_ld_json(document).context(ReleaseFromLdJsonSnafu)
 }
 
 #[derive(Debug, Snafu)]
